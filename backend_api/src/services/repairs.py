@@ -6,6 +6,7 @@ from supabase import Client  # type: ignore
 
 from src.api.errors import http_400, http_404
 from src.schemas.repairs import (
+    AdminRepairsSummary,
     RepairAssignRequest,
     RepairCreate,
     RepairDetail,
@@ -15,7 +16,15 @@ from src.schemas.repairs import (
     RepairUpdate,
 )
 
-VALID_STATUSES = {"requested", "diagnosed", "in_progress", "ready", "completed", "cancelled"}
+VALID_STATUSES = {
+    "requested",
+    "assigned",
+    "diagnosed",
+    "in_progress",
+    "ready",
+    "completed",
+    "cancelled",
+}
 
 
 def _as_dict(row: Any) -> Dict[str, Any]:
@@ -121,7 +130,51 @@ class RepairService:
             .execute()
         )
         history_data = getattr(history_res, "data", None) or []
-        return RepairDetail(**repair_row, history=[_row_to_history(x) for x in history_data])
+        return RepairDetail(
+            **repair_row, history=[_row_to_history(x) for x in history_data]
+        )
+
+    # PUBLIC_INTERFACE
+    def get_admin_counts_by_status(self) -> Dict[str, int]:
+        """
+        Return counts of repairs grouped by their current `status`.
+
+        Notes:
+        - Uses `repairs.status` (current status), not status history.
+        - We compute counts in Python for compatibility with PostgREST without requiring RPC.
+        """
+        res = self._sb.table("repairs").select("status").execute()
+        rows = getattr(res, "data", None) or []
+        counts: Dict[str, int] = {}
+        for r in rows:
+            d = _as_dict(r)
+            s = d.get("status") if isinstance(d.get("status"), str) else "unknown"
+            counts[s] = counts.get(s, 0) + 1
+        return counts
+
+    # PUBLIC_INTERFACE
+    def list_recent_repairs_for_admin(self, limit: int = 10) -> List[RepairRead]:
+        """Return the most recent repairs for admin dashboards."""
+        if limit <= 0:
+            return []
+        limit = min(limit, 50)  # safety cap
+        res = (
+            self._sb.table("repairs")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        data = getattr(res, "data", None) or []
+        return [_row_to_repair(r) for r in data]
+
+    # PUBLIC_INTERFACE
+    def get_admin_summary(self, recent_limit: int = 10) -> AdminRepairsSummary:
+        """Return admin dashboard summary (counts by status + recent repairs)."""
+        counts = self.get_admin_counts_by_status()
+        total = sum(counts.values())
+        recent = self.list_recent_repairs_for_admin(limit=recent_limit)
+        return AdminRepairsSummary(total=total, counts_by_status=counts, recent_repairs=recent)
 
     def _update_repair(self, repair_id: str, patch: Dict[str, Any]) -> RepairRead:
         res = self._sb.table("repairs").update(patch).eq("id", repair_id).select("*").limit(1).execute()

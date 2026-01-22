@@ -6,6 +6,7 @@ from src.api.errors import http_403
 from src.auth.deps import CurrentUser, Role, get_current_user, require_role
 from src.core.supabase import get_supabase_client
 from src.schemas.repairs import (
+    AdminRepairsSummary,
     RepairAssignRequest,
     RepairCreate,
     RepairDetail,
@@ -58,6 +59,31 @@ async def create_repair(
     - Admins may also create repairs (for assisted intake flows).
     """
     return _svc().create_repair(user.user_id, payload)
+
+
+@router.get(
+    "/admin/summary",
+    summary="Admin repairs summary",
+    description="Admin-only summary: counts by current status and a small list of recent repairs.",
+    response_model=AdminRepairsSummary,
+    operation_id="repairs_admin_summary",
+)
+# PUBLIC_INTERFACE
+async def repairs_admin_summary(
+    recent_limit: int = 10, _: CurrentUser = Depends(require_role(Role.admin))
+) -> AdminRepairsSummary:
+    """
+    Return admin dashboard summary.
+
+    Query params:
+    - recent_limit: number of recent repairs to include (capped at 50).
+
+    Returns:
+    - total count
+    - counts_by_status (current `repairs.status`)
+    - recent_repairs list (newest first)
+    """
+    return _svc().get_admin_summary(recent_limit=recent_limit)
 
 
 @router.get(

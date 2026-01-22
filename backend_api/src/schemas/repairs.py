@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -92,3 +92,16 @@ class RepairsListResponse(BaseModel):
     """List wrapper for consistent API responses."""
 
     items: List[RepairRead] = Field(default_factory=list, description="Repair items.")
+
+
+class AdminRepairsSummary(BaseModel):
+    """High-level admin summary for dashboard stats and recent repairs list."""
+
+    total: int = Field(..., description="Total number of repairs.")
+    counts_by_status: Dict[str, int] = Field(
+        default_factory=dict, description="Counts grouped by current repair status."
+    )
+    recent_repairs: List[RepairRead] = Field(
+        default_factory=list,
+        description="Most recently created repairs (newest first).",
+    )
