@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Tuple
 
 from supabase import Client  # type: ignore
 
-from src.api.errors import http_400, http_404
+from src.api.errors import http_400, http_404, http_409
 from src.schemas.repairs import (
     AdminRepairsSummary,
     RepairAssignRequest,
@@ -269,6 +269,3 @@ class RepairService:
         history_item = _row_to_history(hist_data[0])
         return updated, history_item
 
-
-# local import fix: http_409 used above
-from src.api.errors import http_409  # noqa: E402
