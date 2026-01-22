@@ -1,3 +1,5 @@
+import os
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -19,10 +21,13 @@ app = FastAPI(
     openapi_tags=openapi_tags,
 )
 
-# Keep permissive for now per requirements. We'll harden later.
+# CORS: allow only the configured frontend origin.
+# IMPORTANT: Set FRONTEND_ORIGIN in backend env for deployed environments.
+frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000").strip() or "http://localhost:3000"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[frontend_origin],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
