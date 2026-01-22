@@ -24,19 +24,12 @@ class Role(str, Enum):
 class CurrentUser(BaseModel):
     """User context extracted from Supabase JWT / Auth API."""
 
-    # PUBLIC_INTERFACE
     user_id: str = Field(..., description="Supabase Auth user id (JWT 'sub').")
-
-    # PUBLIC_INTERFACE
     email: Optional[str] = Field(default=None, description="User email if available.")
-
-    # PUBLIC_INTERFACE
     roles: List[str] = Field(
         default_factory=list,
         description="User roles derived from app_metadata.role/roles or custom claims.",
     )
-
-    # PUBLIC_INTERFACE
     claims: Dict[str, Any] = Field(
         default_factory=dict,
         description="Raw decoded JWT claims or Supabase user object subset for debugging.",
@@ -107,27 +100,58 @@ def _forbidden(detail: str = "Not enough permissions") -> HTTPException:
     return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
-def _decode_and_verify_with_secret(token: str, jwt_secret: str) -> Dict[str, Any]:
+def _decode_and_verify_with_secret(token: str, settings: Settings) -> Dict[str, Any]:
     """
     Validate JWT with HS256 secret.
 
     Supabase typically signs access tokens with HS256 using the project's JWT secret.
+
+    Env/config:
+    - SUPABASE_JWT_SECRET: required for local verification
+    - SUPABASE_URL: optional but used to compute expected issuer
+    - SUPABASE_JWT_ISSUER: optional override for issuer
+    - SUPABASE_JWT_AUDIENCE: optional audience to enforce (if set, we verify it)
     """
+    jwt_secret = settings.supabase_jwt_secret
+    if not jwt_secret:
+        raise _unauthorized("Server not configured for local JWT verification")
+
+    issuer = settings.supabase_jwt_issuer
+    if issuer is None and settings.supabase_url:
+        # Supabase issuer is typically: "<SUPABASE_URL>/auth/v1"
+        issuer = settings.supabase_url.rstrip("/") + "/auth/v1"
+
+    # If the audience is not provided, we keep aud verification disabled because:
+    # - Supabase tokens may omit aud, or use "authenticated" depending on config.
+    aud = settings.supabase_jwt_audience
+
+    options: Dict[str, Any] = {
+        "verify_signature": True,
+        "verify_exp": True,
+        "verify_iat": True,
+        "verify_nbf": True,
+        "verify_iss": bool(issuer),
+        "verify_aud": bool(aud),
+    }
+
     try:
         claims = jwt.decode(
             token,
             jwt_secret,
             algorithms=["HS256"],
-            options={
-                "verify_signature": True,
-                "verify_aud": False,  # Supabase tokens may omit aud or set it variably
-            },
+            issuer=issuer if issuer else None,
+            audience=aud if aud else None,
+            options=options,
         )
         if not isinstance(claims, dict):
             raise _unauthorized("Invalid token claims")
         return claims
     except jwt.ExpiredSignatureError as exc:
         raise _unauthorized("Token expired") from exc
+    except jwt.InvalidIssuerError as exc:
+        raise _unauthorized("Invalid token issuer") from exc
+    except jwt.InvalidAudienceError as exc:
+        raise _unauthorized("Invalid token audience") from exc
     except jwt.InvalidTokenError as exc:
         raise _unauthorized("Invalid token") from exc
 
@@ -189,7 +213,7 @@ async def _build_current_user_from_token(token: str, settings: Settings) -> Curr
     # Prefer local verification if secret available
     claims: Dict[str, Any]
     if settings.supabase_jwt_secret:
-        claims = _decode_and_verify_with_secret(token, settings.supabase_jwt_secret)
+        claims = _decode_and_verify_with_secret(token, settings)
     else:
         claims = _verify_via_supabase_auth_api(token, settings)
 
@@ -219,6 +243,10 @@ async def get_current_user(
     """
     FastAPI dependency that validates `Authorization: Bearer <jwt>` and returns CurrentUser.
 
+    Resolution order:
+    1) If SUPABASE_JWT_SECRET is set: validate locally (HS256) and decode claims.
+    2) Else: call Supabase Auth API `auth.get_user(jwt)` using SUPABASE_URL + SUPABASE_KEY.
+
     Raises:
       - 401 if missing/invalid token
     """
@@ -244,6 +272,25 @@ def require_role(*required: Role):
             return user
         required_set = {r.value for r in required}
         if user.role_set().intersection(required_set):
+            return user
+        raise _forbidden("Insufficient role")
+
+    return _dep
+
+
+# PUBLIC_INTERFACE
+def require_all_roles(*required: Role):
+    """
+    Return a dependency that ensures the current user has all required roles.
+
+    This is useful for "compound" permissions (rare). For most cases, prefer require_role().
+    """
+
+    async def _dep(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if not required:
+            return user
+        required_set = {r.value for r in required}
+        if required_set.issubset(user.role_set()):
             return user
         raise _forbidden("Insufficient role")
 

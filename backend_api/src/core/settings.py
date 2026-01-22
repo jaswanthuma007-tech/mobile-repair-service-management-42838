@@ -18,13 +18,11 @@ class Settings(BaseModel):
       requires a key that can access the Auth endpoint (service role key works).
     """
 
-    # PUBLIC_INTERFACE
     supabase_url: Optional[str] = Field(
         default=None,
         description="Supabase project URL (e.g., https://xyzcompany.supabase.co).",
     )
 
-    # PUBLIC_INTERFACE
     supabase_key: Optional[str] = Field(
         default=None,
         description=(
@@ -33,7 +31,6 @@ class Settings(BaseModel):
         ),
     )
 
-    # PUBLIC_INTERFACE
     supabase_jwt_secret: Optional[str] = Field(
         default=None,
         description=(
@@ -42,7 +39,22 @@ class Settings(BaseModel):
         ),
     )
 
-    # PUBLIC_INTERFACE
+    supabase_jwt_issuer: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional: Expected JWT issuer. If not set, will be derived as "
+            "`SUPABASE_URL.rstrip('/') + '/auth/v1'` when SUPABASE_URL is available."
+        ),
+    )
+
+    supabase_jwt_audience: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional: Expected JWT audience. If set, audience will be verified. "
+            "If not set, audience verification is disabled for compatibility."
+        ),
+    )
+
     backend_base_url: Optional[str] = Field(
         default=None,
         description="Optional: externally reachable base URL of backend (for docs/links).",
@@ -57,5 +69,7 @@ def get_settings() -> Settings:
         supabase_url=os.getenv("SUPABASE_URL"),
         supabase_key=os.getenv("SUPABASE_KEY"),
         supabase_jwt_secret=os.getenv("SUPABASE_JWT_SECRET"),
+        supabase_jwt_issuer=os.getenv("SUPABASE_JWT_ISSUER"),
+        supabase_jwt_audience=os.getenv("SUPABASE_JWT_AUDIENCE"),
         backend_base_url=os.getenv("BACKEND_BASE_URL"),
     )
