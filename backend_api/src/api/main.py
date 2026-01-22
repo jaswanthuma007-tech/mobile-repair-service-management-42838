@@ -2,10 +2,14 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.auth.deps import CurrentUser, get_current_user
+from src.routers.profiles import router as profiles_router
+from src.routers.repairs import router as repairs_router
 
 openapi_tags = [
     {"name": "Health", "description": "Service health and readiness endpoints."},
     {"name": "Auth", "description": "Authentication/authorization helper endpoints."},
+    {"name": "Profiles", "description": "User profile and role helper endpoints."},
+    {"name": "Repairs", "description": "Repair CRUD, assignment, and status workflows."},
 ]
 
 app = FastAPI(
@@ -23,6 +27,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Domain routers
+app.include_router(profiles_router)
+app.include_router(repairs_router)
 
 
 @app.get("/", tags=["Health"], summary="Health check")
