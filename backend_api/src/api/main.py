@@ -171,7 +171,11 @@ def supabase_health_check():
 
         # Best-effort query. If schema/RLS is not ready, this may fail; we still return the
         # error so operators can distinguish connectivity vs policy/schema issues.
-        sb.from_("profiles").select("user_id").limit(1).execute()
+        #
+        # NOTE: Do not hardcode a column name here. Different Supabase projects may have
+        # `profiles.id` vs `profiles.user_id` etc. Selecting `*` keeps this check focused on
+        # connectivity (PostgREST reachable + auth accepted) rather than schema specifics.
+        sb.from_("profiles").select("*").limit(1).execute()
 
         return {
             "ok": True,
