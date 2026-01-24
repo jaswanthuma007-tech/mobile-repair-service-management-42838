@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.auth.deps import CurrentUser, get_current_user
 from src.core.settings import get_settings
+from src.core.supabase import get_supabase_client
 from src.routers.profiles import router as profiles_router
 from src.routers.repairs import router as repairs_router
 
@@ -124,3 +125,62 @@ async def auth_me(user: CurrentUser = Depends(get_current_user)):
     This is a simple wiring verification endpoint for frontend integration.
     """
     return user.model_dump()
+
+
+@app.get(
+    "/health/supabase",
+    tags=["Health"],
+    summary="Supabase connectivity check",
+    description=(
+        "Verifies the backend can read SUPABASE_URL/SUPABASE_KEY and can initialize a Supabase "
+        "client to execute a trivial query."
+    ),
+)
+# PUBLIC_INTERFACE
+def supabase_health_check():
+    """
+    Verify Supabase configuration and basic connectivity.
+
+    What it checks:
+    - Environment variables SUPABASE_URL and SUPABASE_KEY are present.
+    - The Supabase client can be initialized.
+    - A best-effort query can be executed (select from `profiles` with limit 1).
+
+    Returns:
+      JSON with:
+      - ok: bool
+      - env: { has_supabase_url, has_supabase_key }
+      - query: { attempted, table, error? }
+    """
+    settings = get_settings()
+
+    has_url = bool(settings.supabase_url)
+    has_key = bool(settings.supabase_key)
+
+    # This endpoint is specifically meant to validate URL/key availability (per task request),
+    # so we fail fast if either is missing.
+    if not has_url or not has_key:
+        return {
+            "ok": False,
+            "env": {"has_supabase_url": has_url, "has_supabase_key": has_key},
+            "query": {"attempted": False, "table": None, "error": "Missing SUPABASE_URL/SUPABASE_KEY"},
+        }
+
+    try:
+        sb = get_supabase_client()
+
+        # Best-effort query. If schema/RLS is not ready, this may fail; we still return the
+        # error so operators can distinguish connectivity vs policy/schema issues.
+        sb.from_("profiles").select("user_id").limit(1).execute()
+
+        return {
+            "ok": True,
+            "env": {"has_supabase_url": True, "has_supabase_key": True},
+            "query": {"attempted": True, "table": "profiles"},
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "env": {"has_supabase_url": True, "has_supabase_key": True},
+            "query": {"attempted": True, "table": "profiles", "error": str(exc)},
+        }
